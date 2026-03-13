@@ -14,8 +14,8 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "DiveNet — Find Dive Shops",
-  description: "Discover scuba dive shops, log dives, and explore conditions data.",
+  title: "Divers Slate — Your dive history, online",
+  description: "Log every dive, track conditions, share your history.",
 };
 
 export default function RootLayout({

@@ -1,0 +1,506 @@
+'use client'
+
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
+import type { DiveSite } from '@/lib/supabase/types'
+import DiveLocationPicker from '@/components/map/DiveLocationPicker'
+
+const STEPS = ['Where', 'Dive data', 'Conditions', 'Gear', 'Notes']
+
+const MARINE_LIFE_OPTIONS = [
+  'Sea turtle', 'Nurse shark', 'Reef shark', 'Whale shark', 'Manta ray',
+  'Eagle ray', 'Moray eel', 'Octopus', 'Cuttlefish', 'Seahorse',
+  'Lionfish', 'Barracuda', 'Grouper', 'Pufferfish', 'Clownfish',
+  'Nudibranch', 'Lobster', 'Dolphin', 'Manatee', 'Hammerhead',
+]
+
+type FormState = {
+  // Step 1 — Where
+  dive_site_id: string
+  custom_location: string
+  shop_name: string
+
+  // Step 2 — Dive data
+  dive_date: string
+  dive_number: string
+  max_depth_ft: string
+  avg_depth_ft: string
+  bottom_time_minutes: string
+  surface_interval_minutes: string
+  air_in_psi: string
+  air_out_psi: string
+  tank_size: string
+  gas_mix: string
+
+  // Step 3 — Conditions
+  visibility_ft: string
+  water_temp_surface_f: string
+  water_temp_bottom_f: string
+  current: string
+  weather: string
+  wave_height_ft: string
+  tide: string
+
+  // Step 4 — Gear
+  wetsuit_mm: string
+  weight_lbs: string
+  bcd: string
+  computer: string
+
+  // Step 5 — Notes
+  notes: string
+  marine_life: string[]
+  buddy: string
+  dive_type: string
+  certification_earned: string
+  is_public: boolean
+
+  // Location pin
+  location_lat: number | null
+  location_lng: number | null
+}
+
+const initial: FormState = {
+  dive_site_id: '', custom_location: '', shop_name: '',
+  dive_date: new Date().toISOString().split('T')[0],
+  dive_number: '', max_depth_ft: '', avg_depth_ft: '',
+  bottom_time_minutes: '', surface_interval_minutes: '',
+  air_in_psi: '', air_out_psi: '', tank_size: '', gas_mix: 'air',
+  visibility_ft: '', water_temp_surface_f: '', water_temp_bottom_f: '',
+  current: 'none', weather: '', wave_height_ft: '', tide: '',
+  wetsuit_mm: '', weight_lbs: '', bcd: '', computer: '',
+  notes: '', marine_life: [], buddy: '', dive_type: 'recreational', certification_earned: '',
+  is_public: false, location_lat: null, location_lng: null,
+}
+
+export default function NewDivePage() {
+  const router = useRouter()
+  const supabase = createClient()
+  const [step, setStep] = useState(0)
+  const [form, setForm] = useState<FormState>(initial)
+  const [siteSearch, setSiteSearch] = useState('')
+  const [siteResults, setSiteResults] = useState<DiveSite[]>([])
+  const [selectedSite, setSelectedSite] = useState<DiveSite | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  function set(key: keyof FormState, value: string) {
+    setForm((f) => ({ ...f, [key]: value }))
+  }
+
+  async function searchSites(q: string) {
+    setSiteSearch(q)
+    if (q.length < 2) { setSiteResults([]); return }
+    const { data } = await supabase
+      .from('dive_sites')
+      .select('id, name, country, region, site_type, max_depth_ft, avg_depth_ft, avg_visibility_ft, log_count, created_by, created_at, slug, location')
+      .ilike('name', `%${q}%`)
+      .limit(6)
+    setSiteResults(data ?? [])
+  }
+
+  function pickSite(site: DiveSite) {
+    setSelectedSite(site)
+    set('dive_site_id', site.id)
+    setSiteSearch(site.name)
+    setSiteResults([])
+  }
+
+  function clearSite() {
+    setSelectedSite(null)
+    set('dive_site_id', '')
+    setSiteSearch('')
+  }
+
+  function toggleMarineLife(species: string) {
+    setForm((f) => ({
+      ...f,
+      marine_life: f.marine_life.includes(species)
+        ? f.marine_life.filter((s) => s !== species)
+        : [...f.marine_life, species],
+    }))
+  }
+
+  async function submit() {
+    setSubmitting(true)
+    setError('')
+
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+
+    const n = (v: string) => (v === '' ? null : Number(v))
+
+    const { data, error: insertErr } = await supabase
+      .from('dive_logs')
+      .insert({
+        user_id: user.id,
+        dive_site_id: form.dive_site_id || null,
+        custom_location: form.custom_location || null,
+        dive_date: form.dive_date,
+        dive_number: n(form.dive_number),
+        max_depth_ft: n(form.max_depth_ft),
+        avg_depth_ft: n(form.avg_depth_ft),
+        bottom_time_minutes: n(form.bottom_time_minutes) as number | null,
+        surface_interval_minutes: n(form.surface_interval_minutes),
+        air_in_psi: n(form.air_in_psi),
+        air_out_psi: n(form.air_out_psi),
+        tank_size: form.tank_size || null,
+        gas_mix: form.gas_mix || null,
+        visibility_ft: n(form.visibility_ft),
+        water_temp_surface_f: n(form.water_temp_surface_f),
+        water_temp_bottom_f: n(form.water_temp_bottom_f),
+        current: form.current || null,
+        weather: form.weather || null,
+        wave_height_ft: n(form.wave_height_ft),
+        tide: form.tide || null,
+        wetsuit_mm: n(form.wetsuit_mm),
+        weight_lbs: n(form.weight_lbs),
+        bcd: form.bcd || null,
+        computer: form.computer || null,
+        notes: form.notes || null,
+        marine_life: form.marine_life.length > 0 ? form.marine_life : null,
+        buddy: form.buddy || null,
+        dive_type: form.dive_type || null,
+        certification_earned: form.certification_earned || null,
+        location_lat: form.location_lat,
+        location_lng: form.location_lng,
+        is_public: form.is_public,
+      })
+      .select('id')
+      .single()
+
+    if (insertErr || !data) {
+      setError(insertErr?.message ?? 'Failed to save dive')
+      setSubmitting(false)
+      return
+    }
+
+    router.push(`/logbook/${data.id}`)
+  }
+
+  return (
+    <main className="max-w-xl mx-auto px-4 py-10">
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-8">
+        <button onClick={() => router.back()} className="text-gray-400 hover:text-gray-600 text-sm">← Back</button>
+        <h1 className="text-xl font-bold text-gray-900">Log a dive</h1>
+      </div>
+
+      {/* Step indicator */}
+      <div className="flex gap-1 mb-8">
+        {STEPS.map((s, i) => (
+          <div key={s} className="flex-1">
+            <div className={`h-1 rounded-full ${i <= step ? 'bg-blue-600' : 'bg-gray-100'}`} />
+            <p className={`text-xs mt-1 ${i === step ? 'text-blue-600 font-medium' : 'text-gray-400'}`}>{s}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Step 1 — Where */}
+      {step === 0 && (
+        <div className="space-y-4">
+          <div>
+            <label className="label">Dive site</label>
+            {selectedSite ? (
+              <div className="flex items-center justify-between px-3 py-2 border border-blue-200 bg-blue-50 rounded-lg">
+                <div>
+                  <p className="text-sm font-medium text-gray-900">{selectedSite.name}</p>
+                  {selectedSite.country && <p className="text-xs text-gray-500">{selectedSite.country}</p>}
+                </div>
+                <button onClick={clearSite} className="text-xs text-gray-400 hover:text-gray-600">Change</button>
+              </div>
+            ) : (
+              <div className="relative">
+                <input
+                  type="text"
+                  value={siteSearch}
+                  onChange={(e) => searchSites(e.target.value)}
+                  placeholder="Search dive sites…"
+                  className="input"
+                />
+                {siteResults.length > 0 && (
+                  <ul className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+                    {siteResults.map((site) => (
+                      <li key={site.id}>
+                        <button
+                          type="button"
+                          onClick={() => pickSite(site)}
+                          className="w-full text-left px-3 py-2.5 hover:bg-gray-50 transition-colors"
+                        >
+                          <p className="text-sm font-medium text-gray-900">{site.name}</p>
+                          {site.country && <p className="text-xs text-gray-400">{site.country}{site.region ? ` · ${site.region}` : ''}</p>}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+
+          {!selectedSite && (
+            <div>
+              <label className="label">Or enter a custom location</label>
+              <input
+                type="text"
+                value={form.custom_location}
+                onChange={(e) => set('custom_location', e.target.value)}
+                placeholder="e.g. Blue Heron Bridge, FL"
+                className="input"
+              />
+            </div>
+          )}
+
+          <div>
+            <label className="label">
+              Drop a pin <span className="text-gray-400 font-normal">(optional)</span>
+            </label>
+            <DiveLocationPicker
+              defaultLat={form.location_lat ?? undefined}
+              defaultLng={form.location_lng ?? undefined}
+              onChange={(lat, lng) => setForm((f) => ({ ...f, location_lat: lat, location_lng: lng }))}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Step 2 — Dive data */}
+      {step === 1 && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Date *</label>
+              <input type="date" value={form.dive_date} onChange={(e) => set('dive_date', e.target.value)} className="input" required />
+            </div>
+            <div>
+              <label className="label">Dive #</label>
+              <input type="number" value={form.dive_number} onChange={(e) => set('dive_number', e.target.value)} placeholder="e.g. 47" className="input" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Max depth (ft)</label>
+              <input type="number" value={form.max_depth_ft} onChange={(e) => set('max_depth_ft', e.target.value)} placeholder="60" className="input" />
+            </div>
+            <div>
+              <label className="label">Avg depth (ft)</label>
+              <input type="number" value={form.avg_depth_ft} onChange={(e) => set('avg_depth_ft', e.target.value)} placeholder="40" className="input" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Bottom time (min)</label>
+              <input type="number" value={form.bottom_time_minutes} onChange={(e) => set('bottom_time_minutes', e.target.value)} placeholder="45" className="input" />
+            </div>
+            <div>
+              <label className="label">Surface interval (min)</label>
+              <input type="number" value={form.surface_interval_minutes} onChange={(e) => set('surface_interval_minutes', e.target.value)} placeholder="60" className="input" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Air in (PSI)</label>
+              <input type="number" value={form.air_in_psi} onChange={(e) => set('air_in_psi', e.target.value)} placeholder="3000" className="input" />
+            </div>
+            <div>
+              <label className="label">Air out (PSI)</label>
+              <input type="number" value={form.air_out_psi} onChange={(e) => set('air_out_psi', e.target.value)} placeholder="500" className="input" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Tank</label>
+              <select value={form.tank_size} onChange={(e) => set('tank_size', e.target.value)} className="input">
+                <option value="">—</option>
+                {['al80', 'al63', 'hp100', 'lp85', 'lp108'].map((t) => <option key={t} value={t}>{t.toUpperCase()}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Gas mix</label>
+              <select value={form.gas_mix} onChange={(e) => set('gas_mix', e.target.value)} className="input">
+                {['air', 'ean32', 'ean36', 'ean40', 'trimix'].map((g) => <option key={g} value={g}>{g}</option>)}
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Step 3 — Conditions */}
+      {step === 2 && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="label">Visibility (ft)</label>
+              <input type="number" value={form.visibility_ft} onChange={(e) => set('visibility_ft', e.target.value)} placeholder="60" className="input" />
+            </div>
+            <div>
+              <label className="label">Surface temp (°F)</label>
+              <input type="number" value={form.water_temp_surface_f} onChange={(e) => set('water_temp_surface_f', e.target.value)} placeholder="78" className="input" />
+            </div>
+            <div>
+              <label className="label">Bottom temp (°F)</label>
+              <input type="number" value={form.water_temp_bottom_f} onChange={(e) => set('water_temp_bottom_f', e.target.value)} placeholder="72" className="input" />
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="label">Current</label>
+              <select value={form.current} onChange={(e) => set('current', e.target.value)} className="input">
+                {['none', 'mild', 'moderate', 'strong'].map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Weather</label>
+              <select value={form.weather} onChange={(e) => set('weather', e.target.value)} className="input">
+                <option value="">—</option>
+                {['sunny', 'cloudy', 'rough'].map((w) => <option key={w} value={w}>{w}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Tide</label>
+              <select value={form.tide} onChange={(e) => set('tide', e.target.value)} className="input">
+                <option value="">—</option>
+                {['incoming', 'outgoing', 'slack'].map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="label">Wave height (ft)</label>
+            <input type="number" step="0.5" value={form.wave_height_ft} onChange={(e) => set('wave_height_ft', e.target.value)} placeholder="1.5" className="input w-32" />
+          </div>
+        </div>
+      )}
+
+      {/* Step 4 — Gear */}
+      {step === 3 && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Wetsuit (mm)</label>
+              <select value={form.wetsuit_mm} onChange={(e) => set('wetsuit_mm', e.target.value)} className="input">
+                <option value="">—</option>
+                <option value="0">Drysuit</option>
+                {[3, 5, 7].map((n) => <option key={n} value={n}>{n}mm</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Weight (lbs)</label>
+              <input type="number" step="0.5" value={form.weight_lbs} onChange={(e) => set('weight_lbs', e.target.value)} placeholder="16" className="input" />
+            </div>
+          </div>
+          <div>
+            <label className="label">BCD</label>
+            <input type="text" value={form.bcd} onChange={(e) => set('bcd', e.target.value)} placeholder="Scubapro Hydros Pro" className="input" />
+          </div>
+          <div>
+            <label className="label">Dive computer</label>
+            <input type="text" value={form.computer} onChange={(e) => set('computer', e.target.value)} placeholder="Garmin Descent Mk2" className="input" />
+          </div>
+        </div>
+      )}
+
+      {/* Step 5 — Notes */}
+      {step === 4 && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Dive type</label>
+              <select value={form.dive_type} onChange={(e) => set('dive_type', e.target.value)} className="input">
+                {['recreational', 'training', 'technical', 'freediving'].map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Buddy</label>
+              <input type="text" value={form.buddy} onChange={(e) => set('buddy', e.target.value)} placeholder="Alex" className="input" />
+            </div>
+          </div>
+          <div>
+            <label className="label">Marine life spotted</label>
+            <div className="flex flex-wrap gap-2 mt-1">
+              {MARINE_LIFE_OPTIONS.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => toggleMarineLife(s)}
+                  className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
+                    form.marine_life.includes(s)
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-600 border-gray-200 hover:border-blue-400'
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="label">Notes</label>
+            <textarea
+              value={form.notes}
+              onChange={(e) => set('notes', e.target.value)}
+              placeholder="Visibility was exceptional. Spotted a large green sea turtle resting on the reef…"
+              rows={4}
+              className="input resize-none"
+            />
+          </div>
+          {form.dive_type === 'training' && (
+            <div>
+              <label className="label">Certification earned</label>
+              <input type="text" value={form.certification_earned} onChange={(e) => set('certification_earned', e.target.value)} placeholder="PADI Open Water" className="input" />
+            </div>
+          )}
+
+          <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+            <div>
+              <p className="text-sm font-medium text-gray-700">Show my name on this dive</p>
+              <p className="text-xs text-gray-400">Dive data is always public; this adds your identity</p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={form.is_public}
+              onClick={() => setForm((f) => ({ ...f, is_public: !f.is_public }))}
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${form.is_public ? 'bg-blue-600' : 'bg-gray-200'}`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${form.is_public ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Navigation */}
+      <div className="flex justify-between mt-8">
+        <button
+          type="button"
+          onClick={() => setStep((s) => s - 1)}
+          disabled={step === 0}
+          className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-0 transition-colors"
+        >
+          ← Back
+        </button>
+
+        {step < STEPS.length - 1 ? (
+          <button
+            type="button"
+            onClick={() => setStep((s) => s + 1)}
+            className="px-5 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Next →
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={submit}
+            disabled={submitting}
+            className="px-5 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+          >
+            {submitting ? 'Saving…' : 'Save dive'}
+          </button>
+        )}
+      </div>
+
+      {error && <p className="mt-3 text-sm text-red-600 text-center">{error}</p>}
+    </main>
+  )
+}

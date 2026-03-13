@@ -1,0 +1,46 @@
+_format_version: "1.1"
+
+services:
+  # Auth (GoTrue) — use static IP to avoid Docker DNS issues on Rocky Linux
+  - name: auth-v1
+    url: http://172.28.0.4:9999/
+    routes:
+      - name: auth-v1-all
+        strip_path: true
+        paths:
+          - /auth/v1/
+    plugins:
+      - name: cors
+
+  # REST (PostgREST) — use static IP to avoid Docker DNS issues on Rocky Linux
+  - name: rest-v1
+    url: http://172.28.0.3:3000/
+    routes:
+      - name: rest-v1-all
+        strip_path: true
+        paths:
+          - /rest/v1/
+    plugins:
+      - name: cors
+      - name: key-auth
+        config:
+          hide_credentials: false
+      - name: acl
+        config:
+          hide_groups_header: true
+          allow:
+            - anon
+            - service
+
+consumers:
+  - username: anon
+    keyauth_credentials:
+      - key: ${SUPABASE_ANON_KEY}
+    acls:
+      - group: anon
+
+  - username: service_role
+    keyauth_credentials:
+      - key: ${SUPABASE_SERVICE_KEY}
+    acls:
+      - group: service
