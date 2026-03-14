@@ -8,10 +8,12 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 type Props = {
   defaultLat?: number
   defaultLng?: number
+  flyToLat?: number
+  flyToLng?: number
   onChange: (lat: number, lng: number) => void
 }
 
-export default function DiveLocationPicker({ defaultLat, defaultLng, onChange }: Props) {
+export default function DiveLocationPicker({ defaultLat, defaultLng, flyToLat, flyToLng, onChange }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
@@ -88,6 +90,12 @@ export default function DiveLocationPicker({ defaultLat, defaultLng, onChange }:
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Fly to geocoded location when parent provides new coordinates
+  useEffect(() => {
+    if (flyToLat == null || flyToLng == null || !mapRef.current) return
+    mapRef.current.flyTo({ center: [flyToLng, flyToLat], zoom: 10, duration: 1000 })
+  }, [flyToLat, flyToLng])
 
   return (
     <div>

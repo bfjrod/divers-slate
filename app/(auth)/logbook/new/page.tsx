@@ -88,6 +88,11 @@ export default function NewDivePage() {
   const [siteSearch, setSiteSearch] = useState('')
   const [siteResults, setSiteResults] = useState<DiveSite[]>([])
   const [selectedSite, setSelectedSite] = useState<DiveSite | null>(null)
+  const [siteDropdownOpen, setSiteDropdownOpen] = useState(false)
+
+  // Geocoded map center from custom location
+  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number } | null>(null)
+  const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // UDDF state (Step 2)
   const [uddfFile, setUddfFile] = useState<File | null>(null)
@@ -107,13 +112,19 @@ export default function NewDivePage() {
   // Site search
   async function searchSites(q: string) {
     setSiteSearch(q)
-    if (q.length < 2) { setSiteResults([]); return }
+    if (q.length < 2) { setSiteResults([]); setSiteDropdownOpen(false); return }
+    setSiteDropdownOpen(true)
     const { data } = await supabase
       .from('dive_sites')
       .select('id, name, country, region, site_type, max_depth_ft, avg_depth_ft, avg_visibility_ft, log_count, created_by, created_at, slug, location')
       .ilike('name', `%${q}%`)
       .limit(6)
     setSiteResults(data ?? [])
+  }
+
+  function closeSiteDropdown() {
+    // Delay so button clicks inside the dropdown register before it hides
+    blurTimerRef.current = setTimeout(() => setSiteDropdownOpen(false), 150)
   }
 
   async function createSite() {
@@ -130,16 +141,34 @@ export default function NewDivePage() {
   }
 
   function pickSite(site: DiveSite) {
+    if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
     setSelectedSite(site)
     set('dive_site_id', site.id)
     setSiteSearch(site.name)
     setSiteResults([])
+    setSiteDropdownOpen(false)
   }
 
   function clearSite() {
     setSelectedSite(null)
     set('dive_site_id', '')
     setSiteSearch('')
+  }
+
+  async function geocodeCustomLocation(q: string) {
+    if (!q.trim() || q.trim().length < 3) return
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1`,
+        { headers: { 'Accept-Language': 'en' } }
+      )
+      const json = await res.json()
+      if (json?.[0]) {
+        setMapCenter({ lat: parseFloat(json[0].lat), lng: parseFloat(json[0].lon) })
+      }
+    } catch {
+      // silently ignore geocoding failures
+    }
   }
 
   // UDDF
@@ -308,10 +337,12 @@ export default function NewDivePage() {
                   type="text"
                   value={siteSearch}
                   onChange={(e) => searchSites(e.target.value)}
+                  onBlur={closeSiteDropdown}
+                  onFocus={() => siteSearch.length >= 2 && setSiteDropdownOpen(true)}
                   placeholder="Search dive sites…"
                   className="input"
                 />
-                {siteSearch.length >= 2 && (
+                {siteDropdownOpen && siteSearch.length >= 2 && (
                   <ul className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
                     {siteResults.map((site) => (
                       <li key={site.id}>
@@ -341,6 +372,7 @@ export default function NewDivePage() {
                 type="text"
                 value={form.custom_location}
                 onChange={(e) => set('custom_location', e.target.value)}
+                onBlur={(e) => geocodeCustomLocation(e.target.value)}
                 placeholder="e.g. Blue Heron Bridge, FL"
                 className="input"
               />
@@ -354,6 +386,8 @@ export default function NewDivePage() {
             <DiveLocationPicker
               defaultLat={form.location_lat ?? undefined}
               defaultLng={form.location_lng ?? undefined}
+              flyToLat={mapCenter?.lat}
+              flyToLng={mapCenter?.lng}
               onChange={(lat, lng) => setForm((f) => ({ ...f, location_lat: lat, location_lng: lng }))}
             />
           </div>
