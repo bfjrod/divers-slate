@@ -1,13 +1,15 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { DiveSite } from '@/lib/supabase/types'
+import type { ProfilePoint } from '@/lib/uddf/parse'
+import { parseUddfString, type ParsedDive, type UddfParseResult } from '@/lib/uddf/parse'
 import DiveLocationPicker from '@/components/map/DiveLocationPicker'
 import StarPicker from '@/components/StarPicker'
 
-const STEPS = ['Where', 'Dive data', 'Conditions', 'Gear', 'Notes']
+const STEPS = ['Where', 'Computer', 'Dive data', 'Conditions', 'Gear', 'Notes']
 
 const MARINE_LIFE_OPTIONS = [
   'Sea turtle', 'Nurse shark', 'Reef shark', 'Whale shark', 'Manta ray',
@@ -22,7 +24,7 @@ type FormState = {
   custom_location: string
   shop_name: string
 
-  // Step 2 — Dive data
+  // Step 3 — Dive data (pre-fillable from UDDF)
   dive_date: string
   dive_number: string
   max_depth_ft: string
@@ -33,8 +35,9 @@ type FormState = {
   air_out_psi: string
   tank_size: string
   gas_mix: string
+  computer: string
 
-  // Step 3 — Conditions
+  // Step 4 — Conditions (pre-fillable from UDDF)
   visibility_ft: string
   water_temp_surface_f: string
   water_temp_bottom_f: string
@@ -43,13 +46,12 @@ type FormState = {
   wave_height_ft: string
   tide: string
 
-  // Step 4 — Gear
+  // Step 5 — Gear
   wetsuit_mm: string
   weight_lbs: string
   bcd: string
-  computer: string
 
-  // Step 5 — Notes
+  // Step 6 — Notes
   notes: string
   marine_life: string[]
   buddy: string
@@ -68,10 +70,10 @@ const initial: FormState = {
   dive_date: new Date().toISOString().split('T')[0],
   dive_number: '', max_depth_ft: '', avg_depth_ft: '',
   bottom_time_minutes: '', surface_interval_minutes: '',
-  air_in_psi: '', air_out_psi: '', tank_size: '', gas_mix: 'air',
+  air_in_psi: '', air_out_psi: '', tank_size: '', gas_mix: 'air', computer: '',
   visibility_ft: '', water_temp_surface_f: '', water_temp_bottom_f: '',
   current: 'none', weather: '', wave_height_ft: '', tide: '',
-  wetsuit_mm: '', weight_lbs: '', bcd: '', computer: '',
+  wetsuit_mm: '', weight_lbs: '', bcd: '',
   notes: '', marine_life: [], buddy: '', dive_type: 'recreational', certification_earned: '', rating: 0,
   is_public: false, location_lat: null, location_lng: null,
 }
@@ -81,9 +83,20 @@ export default function NewDivePage() {
   const supabase = createClient()
   const [step, setStep] = useState(0)
   const [form, setForm] = useState<FormState>(initial)
+
+  // Site search
   const [siteSearch, setSiteSearch] = useState('')
   const [siteResults, setSiteResults] = useState<DiveSite[]>([])
   const [selectedSite, setSelectedSite] = useState<DiveSite | null>(null)
+
+  // UDDF state (Step 2)
+  const [uddfFile, setUddfFile] = useState<File | null>(null)
+  const [uddfParsed, setUddfParsed] = useState<UddfParseResult | null>(null)
+  const [uddfError, setUddfError] = useState<string | null>(null)
+  const [uddfSelectedIndex, setUddfSelectedIndex] = useState<number | null>(null)
+  // profile_data lives outside FormState (not a string field)
+  const profileDataRef = useRef<ProfilePoint[] | null>(null)
+
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
@@ -91,6 +104,7 @@ export default function NewDivePage() {
     setForm((f) => ({ ...f, [key]: value }))
   }
 
+  // Site search
   async function searchSites(q: string) {
     setSiteSearch(q)
     if (q.length < 2) { setSiteResults([]); return }
@@ -106,15 +120,13 @@ export default function NewDivePage() {
     if (!siteSearch.trim()) return
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
-
     const slug = siteSearch.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
-    const { data, error } = await supabase
+    const { data, error: err } = await supabase
       .from('dive_sites')
       .insert({ name: siteSearch.trim(), slug, created_by: user.id })
       .select('id, name, country, region, site_type, max_depth_ft, avg_depth_ft, avg_visibility_ft, log_count, created_by, created_at, slug, location')
       .single()
-
-    if (!error && data) pickSite(data)
+    if (!err && data) pickSite(data)
   }
 
   function pickSite(site: DiveSite) {
@@ -128,6 +140,54 @@ export default function NewDivePage() {
     setSelectedSite(null)
     set('dive_site_id', '')
     setSiteSearch('')
+  }
+
+  // UDDF
+  function handleUddfFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]
+    if (!f) return
+    if (!f.name.toLowerCase().endsWith('.uddf')) {
+      setUddfError('Please select a .uddf file')
+      return
+    }
+    setUddfError(null)
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const xml = ev.target?.result as string
+      const result = parseUddfString(xml)
+      if (result.fatalError) { setUddfError(result.fatalError); return }
+      if (result.dives.length === 0) { setUddfError('No dives found in this file'); return }
+      setUddfFile(f)
+      setUddfParsed(result)
+      // Auto-select if only one dive
+      if (result.dives.length === 1) selectUddfDive(result.dives[0], 0)
+    }
+    reader.readAsText(f)
+  }
+
+  function selectUddfDive(dive: ParsedDive, index: number) {
+    setUddfSelectedIndex(index)
+    profileDataRef.current = dive.profileData ?? null
+    setForm((f) => ({
+      ...f,
+      dive_number:              dive.diveNumber !== null ? String(dive.diveNumber) : f.dive_number,
+      dive_date:                dive.diveDate ?? f.dive_date,
+      max_depth_ft:             dive.maxDepthFt !== null ? String(dive.maxDepthFt) : f.max_depth_ft,
+      avg_depth_ft:             dive.avgDepthFt !== null ? String(dive.avgDepthFt) : f.avg_depth_ft,
+      bottom_time_minutes:      dive.bottomTimeMinutes !== null ? String(dive.bottomTimeMinutes) : f.bottom_time_minutes,
+      surface_interval_minutes: dive.surfaceIntervalMinutes !== null ? String(dive.surfaceIntervalMinutes) : f.surface_interval_minutes,
+      water_temp_surface_f:     dive.waterTempSurfaceF !== null ? String(dive.waterTempSurfaceF) : f.water_temp_surface_f,
+      water_temp_bottom_f:      dive.waterTempBottomF !== null ? String(dive.waterTempBottomF) : f.water_temp_bottom_f,
+      air_in_psi:               dive.airInPsi !== null ? String(dive.airInPsi) : f.air_in_psi,
+      air_out_psi:              dive.airOutPsi !== null ? String(dive.airOutPsi) : f.air_out_psi,
+      tank_size:                dive.tankSize ?? f.tank_size,
+      computer:                 dive.computerName ?? f.computer,
+    }))
+  }
+
+  function clearUddfSelection() {
+    setUddfSelectedIndex(null)
+    profileDataRef.current = null
   }
 
   function toggleMarineLife(species: string) {
@@ -145,6 +205,16 @@ export default function NewDivePage() {
 
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
+
+    // Upload raw UDDF file if one was used
+    let uddfFileUrl: string | null = null
+    if (uddfFile) {
+      const storagePath = `${user.id}/${Date.now()}-${uddfFile.name}`
+      const { error: uploadErr } = await supabase.storage
+        .from('dive-files')
+        .upload(storagePath, uddfFile, { contentType: 'application/octet-stream', upsert: false })
+      if (!uploadErr) uddfFileUrl = storagePath
+    }
 
     const n = (v: string) => (v === '' ? null : Number(v))
 
@@ -184,6 +254,8 @@ export default function NewDivePage() {
         location_lng: form.location_lng,
         rating: form.rating || null,
         is_public: form.is_public,
+        profile_data: profileDataRef.current,
+        uddf_file_url: uddfFileUrl,
       })
       .select('id')
       .single()
@@ -196,6 +268,8 @@ export default function NewDivePage() {
 
     router.push(`/logbook/${data.id}`)
   }
+
+  const selectedDive = uddfParsed && uddfSelectedIndex !== null ? uddfParsed.dives[uddfSelectedIndex] : null
 
   return (
     <main className="max-w-xl mx-auto px-4 py-10">
@@ -241,11 +315,7 @@ export default function NewDivePage() {
                   <ul className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
                     {siteResults.map((site) => (
                       <li key={site.id}>
-                        <button
-                          type="button"
-                          onClick={() => pickSite(site)}
-                          className="w-full text-left px-3 py-2.5 hover:bg-gray-50 transition-colors"
-                        >
+                        <button type="button" onClick={() => pickSite(site)} className="w-full text-left px-3 py-2.5 hover:bg-gray-50 transition-colors">
                           <p className="text-sm font-medium text-gray-900">{site.name}</p>
                           {site.country && <p className="text-xs text-gray-400">{site.country}{site.region ? ` · ${site.region}` : ''}</p>}
                         </button>
@@ -253,11 +323,7 @@ export default function NewDivePage() {
                     ))}
                     {siteResults.length === 0 && (
                       <li>
-                        <button
-                          type="button"
-                          onClick={createSite}
-                          className="w-full text-left px-3 py-2.5 hover:bg-blue-50 transition-colors"
-                        >
+                        <button type="button" onClick={createSite} className="w-full text-left px-3 py-2.5 hover:bg-blue-50 transition-colors">
                           <p className="text-sm text-blue-600">+ Add &ldquo;{siteSearch}&rdquo; as a new site</p>
                         </button>
                       </li>
@@ -294,8 +360,81 @@ export default function NewDivePage() {
         </div>
       )}
 
-      {/* Step 2 — Dive data */}
+      {/* Step 2 — Computer */}
       {step === 1 && (
+        <div className="space-y-4">
+          <p className="text-xs text-gray-400">Upload your dive computer export to pre-fill depth, time, and temperature. Skip if you&rsquo;ll enter data manually.</p>
+
+          {!uddfParsed ? (
+            /* A: No file yet */
+            <div>
+              <label
+                htmlFor="uddf-input"
+                className="flex flex-col items-center justify-center gap-3 border-2 border-dashed border-gray-200 rounded-xl p-10 cursor-pointer hover:border-blue-300 hover:bg-blue-50/30 transition-colors"
+              >
+                <svg className="w-8 h-8 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 16v-8m0 0-3 3m3-3 3 3M6 20h12a2 2 0 002-2V8a2 2 0 00-.586-1.414l-4-4A2 2 0 0013.172 2H6a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                </svg>
+                <span className="text-sm font-medium text-gray-600">Choose .uddf file</span>
+                <span className="text-xs text-gray-400">Garmin Dive app · Suunto DM · any UDDF 3.x</span>
+                <input id="uddf-input" type="file" accept=".uddf" className="sr-only" onChange={handleUddfFile} />
+              </label>
+              {uddfError && <p className="text-sm text-red-500 mt-2">{uddfError}</p>}
+            </div>
+          ) : selectedDive ? (
+            /* C: Dive selected */
+            <div className="border border-green-200 bg-green-50 rounded-xl p-4">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-green-800">
+                    ✓ Dive #{selectedDive.diveNumber ?? uddfSelectedIndex! + 1}
+                    {selectedDive.diveDate ? ` · ${new Date(selectedDive.diveDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : ''}
+                    {selectedDive.maxDepthFt ? ` · ${selectedDive.maxDepthFt}ft` : ''}
+                    {selectedDive.bottomTimeMinutes ? ` · ${selectedDive.bottomTimeMinutes}min` : ''}
+                  </p>
+                  <p className="text-xs text-green-600 mt-0.5">Depth, time, temps{selectedDive.profileData ? ', and dive profile' : ''} pre-filled.</p>
+                </div>
+                <button onClick={clearUddfSelection} className="text-xs text-gray-400 hover:text-gray-600 shrink-0 ml-3">Change</button>
+              </div>
+            </div>
+          ) : (
+            /* B: File parsed, pick a dive */
+            <div>
+              <p className="text-sm font-medium text-gray-700 mb-3">
+                Found {uddfParsed.dives.length} dives
+                {uddfParsed.computerName ? ` from ${uddfParsed.computerName}` : ''}
+                . Pick one:
+              </p>
+              <ul className="divide-y divide-gray-100 border border-gray-100 rounded-xl overflow-hidden max-h-80 overflow-y-auto">
+                {uddfParsed.dives.map((dive, i) => {
+                  const date = dive.diveDate
+                    ? new Date(dive.diveDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                    : 'Unknown date'
+                  return (
+                    <li key={i}>
+                      <button
+                        type="button"
+                        onClick={() => selectUddfDive(dive, i)}
+                        className="w-full flex items-center gap-4 px-4 py-3 bg-white hover:bg-blue-50 transition-colors text-left"
+                      >
+                        <span className="w-8 text-center text-xs text-gray-300 font-mono shrink-0">#{dive.diveNumber ?? i + 1}</span>
+                        <span className="flex-1 text-sm text-gray-700">{date}</span>
+                        <div className="flex gap-4 text-right shrink-0">
+                          {dive.maxDepthFt && <div><p className="text-sm font-medium text-gray-700">{dive.maxDepthFt}ft</p></div>}
+                          {dive.bottomTimeMinutes && <div><p className="text-sm font-medium text-gray-700">{dive.bottomTimeMinutes}min</p></div>}
+                        </div>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Step 3 — Dive data */}
+      {step === 2 && (
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -355,8 +494,8 @@ export default function NewDivePage() {
         </div>
       )}
 
-      {/* Step 3 — Conditions */}
-      {step === 2 && (
+      {/* Step 4 — Conditions */}
+      {step === 3 && (
         <div className="space-y-4">
           <div className="grid grid-cols-3 gap-3">
             <div>
@@ -401,8 +540,8 @@ export default function NewDivePage() {
         </div>
       )}
 
-      {/* Step 4 — Gear */}
-      {step === 3 && (
+      {/* Step 5 — Gear */}
+      {step === 4 && (
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -429,8 +568,8 @@ export default function NewDivePage() {
         </div>
       )}
 
-      {/* Step 5 — Notes */}
-      {step === 4 && (
+      {/* Step 6 — Notes */}
+      {step === 5 && (
         <div className="space-y-4">
           <div>
             <label className="label">Overall rating</label>
@@ -520,7 +659,7 @@ export default function NewDivePage() {
             onClick={() => setStep((s) => s + 1)}
             className="px-5 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
           >
-            Next →
+            {step === 1 && !selectedDive ? 'Skip →' : 'Next →'}
           </button>
         ) : (
           <button
