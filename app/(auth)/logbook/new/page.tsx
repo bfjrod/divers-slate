@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { DiveSite } from '@/lib/supabase/types'
 import DiveLocationPicker from '@/components/map/DiveLocationPicker'
+import StarPicker from '@/components/StarPicker'
 
 const STEPS = ['Where', 'Dive data', 'Conditions', 'Gear', 'Notes']
 
@@ -54,6 +55,7 @@ type FormState = {
   buddy: string
   dive_type: string
   certification_earned: string
+  rating: number
   is_public: boolean
 
   // Location pin
@@ -70,7 +72,7 @@ const initial: FormState = {
   visibility_ft: '', water_temp_surface_f: '', water_temp_bottom_f: '',
   current: 'none', weather: '', wave_height_ft: '', tide: '',
   wetsuit_mm: '', weight_lbs: '', bcd: '', computer: '',
-  notes: '', marine_life: [], buddy: '', dive_type: 'recreational', certification_earned: '',
+  notes: '', marine_life: [], buddy: '', dive_type: 'recreational', certification_earned: '', rating: 0,
   is_public: false, location_lat: null, location_lng: null,
 }
 
@@ -180,6 +182,7 @@ export default function NewDivePage() {
         certification_earned: form.certification_earned || null,
         location_lat: form.location_lat,
         location_lng: form.location_lng,
+        rating: form.rating || null,
         is_public: form.is_public,
       })
       .select('id')
@@ -429,6 +432,11 @@ export default function NewDivePage() {
       {/* Step 5 — Notes */}
       {step === 4 && (
         <div className="space-y-4">
+          <div>
+            <label className="label">Overall rating</label>
+            <StarPicker value={form.rating} onChange={(r) => setForm((f) => ({ ...f, rating: r }))} />
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label">Dive type</label>

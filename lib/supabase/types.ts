@@ -137,6 +137,7 @@ export type Database = {
           location_lat: number | null
           location_lng: number | null
           profile_data: { t: number; d: number; tmp?: number }[] | null
+          rating: number | null
           created_at: string
         }
         Insert: {
@@ -177,6 +178,7 @@ export type Database = {
           location_lat?: number | null
           location_lng?: number | null
           profile_data?: { t: number; d: number; tmp?: number }[] | null
+          rating?: number | null
           created_at?: string
         }
         Update: Partial<Database['public']['Tables']['dive_logs']['Insert']>
@@ -257,6 +259,12 @@ export type Database = {
           dive_log_id?: string | null
         }
         Update: Partial<Database['public']['Tables']['certifications']['Insert']>
+        Relationships: []
+      }
+      follows: {
+        Row: { follower_id: string; following_id: string; created_at: string }
+        Insert: { follower_id: string; following_id: string; created_at?: string }
+        Update: Partial<{ follower_id: string; following_id: string; created_at: string }>
         Relationships: []
       }
     }

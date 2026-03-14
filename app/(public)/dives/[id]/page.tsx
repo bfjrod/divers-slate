@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import DiveLocationMap from '@/components/map/DiveLocationMap'
 import DiveProfile from '@/components/DiveProfile'
+import StarDisplay from '@/components/StarDisplay'
 
 type DiveDetail = {
   id: string
@@ -35,6 +36,7 @@ type DiveDetail = {
   location_lat: number | null
   location_lng: number | null
   profile_data: { t: number; d: number; tmp?: number }[] | null
+  rating: number | null
   dive_sites: { name: string; country: string | null; region: string | null } | null
   users: { display_name: string | null; username: string | null } | null
 }
@@ -48,7 +50,7 @@ export default async function PublicDivePage({ params }: Props) {
 
   const { data } = await supabase
     .from('dive_logs')
-    .select('id, dive_date, dive_number, max_depth_ft, avg_depth_ft, bottom_time_minutes, surface_interval_minutes, visibility_ft, water_temp_surface_f, water_temp_bottom_f, current, weather, wave_height_ft, tide, air_in_psi, air_out_psi, tank_size, gas_mix, wetsuit_mm, weight_lbs, bcd, computer, notes, marine_life, dive_type, custom_location, is_public, location_lat, location_lng, profile_data, dive_sites(name, country, region), users(display_name, username)')
+    .select('id, dive_date, dive_number, max_depth_ft, avg_depth_ft, bottom_time_minutes, surface_interval_minutes, visibility_ft, water_temp_surface_f, water_temp_bottom_f, current, weather, wave_height_ft, tide, air_in_psi, air_out_psi, tank_size, gas_mix, wetsuit_mm, weight_lbs, bcd, computer, notes, marine_life, dive_type, custom_location, is_public, location_lat, location_lng, profile_data, rating, dive_sites(name, country, region), users(display_name, username)')
     .eq('id', params.id)
     .single()
 
@@ -79,6 +81,7 @@ export default async function PublicDivePage({ params }: Props) {
           {log.dive_number ? ` · Dive #${log.dive_number}` : ''}
           {site?.country ? ` · ${site.country}` : ''}
         </p>
+        {log.rating && <StarDisplay rating={log.rating} size="md" />}
         <p className="mt-1 text-xs text-gray-400">
           {log.is_public && diver?.display_name ? (
             <>

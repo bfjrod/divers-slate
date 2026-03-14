@@ -4,6 +4,7 @@ import Link from 'next/link'
 import type { DiveLog } from '@/lib/supabase/types'
 import DiveLocationMap from '@/components/map/DiveLocationMap'
 import DiveProfile from '@/components/DiveProfile'
+import StarDisplay from '@/components/StarDisplay'
 
 type DiveLogDetail = DiveLog & {
   dive_sites: { name: string; country: string | null; region: string | null; site_type: string | null } | null
@@ -49,9 +50,12 @@ export default async function DiveDetailPage({ params }: Props) {
           {log.dive_number ? ` · Dive #${log.dive_number}` : ''}
           {site?.country ? ` · ${site.country}` : ''}
         </p>
-        <Link href={`/dives/${log.id}`} className="text-xs text-blue-500 hover:underline mt-1 inline-block">
-          Public view →
-        </Link>
+        <div className="flex items-center gap-3 mt-2">
+          {log.rating && <StarDisplay rating={log.rating} size="md" />}
+          <Link href={`/dives/${log.id}`} className="text-xs text-blue-500 hover:underline">
+            Public view →
+          </Link>
+        </div>
       </div>
 
       {/* Location map */}

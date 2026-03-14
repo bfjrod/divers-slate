@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import DiveLocationMap from '@/components/map/DiveLocationMap'
+import StarDisplay from '@/components/StarDisplay'
 
 interface Props {
   params: { slug: string }
@@ -14,6 +15,7 @@ type RecentDive = {
   bottom_time_minutes: number | null
   visibility_ft: number | null
   marine_life: string[] | null
+  rating: number | null
   is_public: boolean
   users: { display_name: string | null; username: string | null } | null
 }
@@ -34,7 +36,7 @@ export default async function SitePage({ params }: Props) {
   // For now, fetch recent dives at this site to get a coordinate
   const { data: recentDives } = await supabase
     .from('dive_logs')
-    .select('id, dive_date, max_depth_ft, bottom_time_minutes, visibility_ft, marine_life, is_public, location_lat, location_lng, users(display_name, username)')
+    .select('id, dive_date, max_depth_ft, bottom_time_minutes, visibility_ft, marine_life, rating, is_public, location_lat, location_lng, users(display_name, username)')
     .eq('dive_site_id', site.id)
     .order('dive_date', { ascending: false })
     .limit(20)
@@ -133,9 +135,12 @@ export default async function SitePage({ params }: Props) {
                       {dive.max_depth_ft ? <span className="text-gray-400"> · {dive.max_depth_ft} ft</span> : null}
                       {dive.bottom_time_minutes ? <span className="text-gray-400"> · {dive.bottom_time_minutes} min</span> : null}
                     </p>
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      {dive.is_public && diver?.display_name ? diver.display_name : 'Anonymous diver'}
-                    </p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <p className="text-xs text-gray-400">
+                        {dive.is_public && diver?.display_name ? diver.display_name : 'Anonymous diver'}
+                      </p>
+                      {dive.rating && <StarDisplay rating={dive.rating} />}
+                    </div>
                   </div>
                   <Link href={`/dives/${dive.id}`} className="text-xs text-blue-600 hover:underline shrink-0 ml-4">
                     View →
