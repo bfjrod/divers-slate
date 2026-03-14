@@ -22,12 +22,14 @@ type FeedDive = {
 
 interface Props {
   recent: FeedDive[]
-  following: FeedDive[]
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  following: any[]
+  isLoggedIn: boolean
 }
 
-export default function FeedTabs({ recent, following }: Props) {
+export default function FeedTabs({ recent, following, isLoggedIn }: Props) {
   const [tab, setTab] = useState<'recent' | 'following'>('recent')
-  const dives = tab === 'recent' ? recent : following
+  const dives: FeedDive[] = tab === 'recent' ? recent : following
 
   return (
     <main className="max-w-xl mx-auto px-4 py-10">
@@ -36,9 +38,9 @@ export default function FeedTabs({ recent, following }: Props) {
         <Link href="/logbook" className="text-sm text-blue-600 hover:underline">My logbook</Link>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs — only show Following if logged in */}
       <div className="flex gap-1 p-1 bg-gray-100 rounded-lg mb-6">
-        {(['recent', 'following'] as const).map((t) => (
+        {(isLoggedIn ? ['recent', 'following'] as const : ['recent'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
