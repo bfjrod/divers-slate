@@ -100,6 +100,21 @@ export default function NewDivePage() {
     setSiteResults(data ?? [])
   }
 
+  async function createSite() {
+    if (!siteSearch.trim()) return
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+
+    const slug = siteSearch.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
+    const { data, error } = await supabase
+      .from('dive_sites')
+      .insert({ name: siteSearch.trim(), slug, created_by: user.id })
+      .select('id, name, country, region, site_type, max_depth_ft, avg_depth_ft, avg_visibility_ft, log_count, created_by, created_at, slug, location')
+      .single()
+
+    if (!error && data) pickSite(data)
+  }
+
   function pickSite(site: DiveSite) {
     setSelectedSite(site)
     set('dive_site_id', site.id)
@@ -219,7 +234,7 @@ export default function NewDivePage() {
                   placeholder="Search dive sites…"
                   className="input"
                 />
-                {siteResults.length > 0 && (
+                {siteSearch.length >= 2 && (
                   <ul className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
                     {siteResults.map((site) => (
                       <li key={site.id}>
@@ -233,6 +248,17 @@ export default function NewDivePage() {
                         </button>
                       </li>
                     ))}
+                    {siteResults.length === 0 && (
+                      <li>
+                        <button
+                          type="button"
+                          onClick={createSite}
+                          className="w-full text-left px-3 py-2.5 hover:bg-blue-50 transition-colors"
+                        >
+                          <p className="text-sm text-blue-600">+ Add &ldquo;{siteSearch}&rdquo; as a new site</p>
+                        </button>
+                      </li>
+                    )}
                   </ul>
                 )}
               </div>
