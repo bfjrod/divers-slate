@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import type { DiveLog } from '@/lib/supabase/types'
 import DiveLocationMap from '@/components/map/DiveLocationMap'
+import DiveProfile from '@/components/DiveProfile'
 
 type DiveLogDetail = DiveLog & {
   dive_sites: { name: string; country: string | null; region: string | null; site_type: string | null } | null
@@ -57,6 +58,13 @@ export default async function DiveDetailPage({ params }: Props) {
       {log.location_lat && log.location_lng && (
         <div className="mb-8 rounded-xl overflow-hidden border border-gray-100">
           <DiveLocationMap lat={Number(log.location_lat)} lng={Number(log.location_lng)} />
+        </div>
+      )}
+
+      {/* Depth profile */}
+      {log.profile_data && log.profile_data.length > 1 && (
+        <div className="mb-8">
+          <DiveProfile data={log.profile_data} maxDepthFt={log.max_depth_ft} />
         </div>
       )}
 

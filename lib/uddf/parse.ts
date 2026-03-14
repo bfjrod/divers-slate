@@ -1,3 +1,9 @@
+export type ProfilePoint = {
+  t: number        // seconds from dive start
+  d: number        // depth in feet
+  tmp?: number     // water temp in °F (optional)
+}
+
 export type ParsedDive = {
   diveNumber: number | null
   diveDate: string | null // YYYY-MM-DD
@@ -12,6 +18,7 @@ export type ParsedDive = {
   airOutPsi: number | null
   tankSize: 'al80' | 'al63' | 'hp100' | 'lp85' | 'lp108' | null
   weightLbs: number | null
+  profileData: ProfilePoint[] | null
   parseWarnings: string[]
 }
 
@@ -54,6 +61,50 @@ function litersToTankSize(liters: number): ParsedDive['tankSize'] {
   return 'lp108'
 }
 
+// Downsample to at most maxPoints by taking evenly spaced indices
+function downsample<T>(arr: T[], maxPoints: number): T[] {
+  if (arr.length <= maxPoints) return arr
+  const step = arr.length / maxPoints
+  return Array.from({ length: maxPoints }, (_, i) => arr[Math.round(i * step)])
+}
+
+function parseProfileData(dive: Element): ProfilePoint[] | null {
+  const samples = dive.querySelector('samples')
+  if (!samples) return null
+
+  const waypoints = samples.querySelectorAll('waypoint')
+  if (waypoints.length === 0) return null
+
+  const points: ProfilePoint[] = []
+
+  waypoints.forEach((wp) => {
+    const tText = getText(wp, 'divetime')
+    const dText = getText(wp, 'depth')
+    const t = parseNum(tText)
+    const dM = parseNum(dText)
+
+    if (t === null || dM === null) return
+
+    const point: ProfilePoint = {
+      t: Math.round(t),
+      d: Math.round(metersToFeet(dM) * 10) / 10,
+    }
+
+    const tmpText = getText(wp, 'temperature')
+    const tmpK = parseNum(tmpText)
+    if (tmpK !== null && tmpK > 200) {
+      point.tmp = Math.round(kelvinToFahrenheit(tmpK) * 10) / 10
+    }
+
+    points.push(point)
+  })
+
+  if (points.length === 0) return null
+
+  // Downsample to 500 points max to keep JSON size reasonable
+  return downsample(points, 500)
+}
+
 function parseDiveElement(dive: Element, computerName: string | null): ParsedDive {
   const warnings: string[] = []
 
@@ -68,7 +119,6 @@ function parseDiveElement(dive: Element, computerName: string | null): ParsedDiv
   let diveDate: string | null = null
   const datetimeText = getText(dive, 'datetime')
   if (datetimeText) {
-    // ISO datetime like 2024-08-15T09:30:00 — take the date portion
     diveDate = datetimeText.split('T')[0] ?? null
   } else {
     warnings.push('No date found — dive will be imported with today\'s date')
@@ -115,7 +165,7 @@ function parseDiveElement(dive: Element, computerName: string | null): ParsedDiv
   let waterTempSurfaceF: number | null = null
   const tempBeforeText = before ? getText(before, 'temperaturebegin') : null
   const tempBeforeK = parseNum(tempBeforeText)
-  if (tempBeforeK !== null && tempBeforeK > 200) { // sanity check — must be Kelvin
+  if (tempBeforeK !== null && tempBeforeK > 200) {
     waterTempSurfaceF = Math.round(kelvinToFahrenheit(tempBeforeK) * 10) / 10
   }
 
@@ -161,6 +211,9 @@ function parseDiveElement(dive: Element, computerName: string | null): ParsedDiv
     weightLbs = Math.round(weightKg * 2.20462 * 10) / 10
   }
 
+  // Depth profile
+  const profileData = parseProfileData(dive)
+
   return {
     diveNumber,
     diveDate,
@@ -175,6 +228,7 @@ function parseDiveElement(dive: Element, computerName: string | null): ParsedDiv
     airOutPsi,
     tankSize,
     weightLbs,
+    profileData,
     parseWarnings: warnings,
   }
 }
@@ -182,20 +236,16 @@ function parseDiveElement(dive: Element, computerName: string | null): ParsedDiv
 export function parseUddfString(xmlString: string): UddfParseResult {
   const doc = new DOMParser().parseFromString(xmlString, 'application/xml')
 
-  // Check for XML parse error
   if (doc.documentElement.tagName.toLowerCase() === 'parsererror') {
     return { computerName: null, dives: [], totalDives: 0, fatalError: 'Not valid XML — is this a UDDF file?' }
   }
 
-  // Check root element is uddf
   if (doc.documentElement.tagName.toLowerCase() !== 'uddf') {
     return { computerName: null, dives: [], totalDives: 0, fatalError: 'Not a UDDF file — root element is not <uddf>' }
   }
 
-  // Extract computer name
   const computerName = getText(doc.documentElement, 'divecomputer name') ?? null
 
-  // Find all dives
   const diveEls = doc.querySelectorAll('repetitiongroup dive')
   if (diveEls.length === 0) {
     return { computerName, dives: [], totalDives: 0, fatalError: null }
@@ -220,6 +270,7 @@ export function parseUddfString(xmlString: string): UddfParseResult {
         airOutPsi: null,
         tankSize: null,
         weightLbs: null,
+        profileData: null,
         parseWarnings: ['Failed to parse this dive — it will still be imported with available fields'],
       })
     }

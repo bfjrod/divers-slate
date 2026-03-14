@@ -95,6 +95,7 @@ export default function ImportPage() {
         computer: dive.computerName,
         uddf_file_url: uddfFileUrl,
         dive_type: 'recreational',
+        profile_data: dive.profileData,
       })
 
       if (error) failed++

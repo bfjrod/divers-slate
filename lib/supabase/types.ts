@@ -136,6 +136,7 @@ export type Database = {
           is_public: boolean
           location_lat: number | null
           location_lng: number | null
+          profile_data: { t: number; d: number; tmp?: number }[] | null
           created_at: string
         }
         Insert: {
@@ -175,6 +176,7 @@ export type Database = {
           is_public?: boolean
           location_lat?: number | null
           location_lng?: number | null
+          profile_data?: { t: number; d: number; tmp?: number }[] | null
           created_at?: string
         }
         Update: Partial<Database['public']['Tables']['dive_logs']['Insert']>
